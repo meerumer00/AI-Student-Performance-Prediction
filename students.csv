@@ -1,0 +1,17 @@
+
+attendance,internal_marks,assignment_score,study_hours,performance
+45,35,40,1,At Risk
+50,42,45,2,At Risk
+60,50,55,2,Moderate
+65,58,60,3,Moderate
+70,65,68,3,Good
+75,72,75,4,Good
+80,78,82,4,Good
+85,85,88,5,Good
+40,30,35,1,At Risk
+55,48,50,2,At Risk
+68,60,65,3,Moderate
+72,68,70,4,Good
+90,92,95,6,Good
+58,55,58,2,Moderate
+48,38,42,1,At Risk
