@@ -1,6 +1,10 @@
+
 import streamlit as st
 import pandas as pd
 import joblib
+import sqlite3
+from datetime import datetime
+from pathlib import Path
 
 # ---------------- PAGE CONFIGURATION ----------------
 
@@ -10,6 +14,72 @@ st.set_page_config(
     layout="wide"
 )
 
+# ---------------- DATABASE CONFIGURATION ----------------
+
+DB_FILE = Path(__file__).parent / "students.db"
+
+def get_connection():
+    return sqlite3.connect(DB_FILE)
+
+def initialize_database():
+    with get_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_name TEXT NOT NULL,
+                attendance REAL NOT NULL,
+                internal_marks REAL NOT NULL,
+                assignment_score REAL NOT NULL,
+                study_hours REAL NOT NULL,
+                performance TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+def save_student(name, attendance, marks, assignment, hours, result):
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO students (
+                student_name, attendance, internal_marks,
+                assignment_score, study_hours,
+                performance, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            name, attendance, marks, assignment,
+            hours, result,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+
+def get_students():
+    with get_connection() as conn:
+        return pd.read_sql_query(
+            "SELECT * FROM students ORDER BY id DESC",
+            conn
+        )
+
+def update_student(student_id, name, attendance, marks,
+                   assignment, hours, performance):
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE students
+            SET student_name=?, attendance=?,
+                internal_marks=?, assignment_score=?,
+                study_hours=?, performance=?
+            WHERE id=?
+        """, (
+            name, attendance, marks, assignment,
+            hours, performance, student_id
+        ))
+
+def delete_student(student_id):
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM students WHERE id=?",
+            (student_id,)
+        )
+
+initialize_database()
 
 # ---------------- LOAD AI MODEL ----------------
 
@@ -17,20 +87,18 @@ st.set_page_config(
 def load_model():
     return joblib.load("student_model.pkl")
 
-
 try:
     model = load_model()
 except Exception as e:
     st.error(f"AI model could not be loaded: {e}")
     st.stop()
 
-
 # ---------------- CATEGORY STANDARDIZATION ----------------
 
 def standardize_performance(value):
     value = str(value).strip().lower()
 
-    category_mapping = {
+    mapping = {
         "good": "Good",
         "average": "Average",
         "moderate": "Average",
@@ -41,244 +109,322 @@ def standardize_performance(value):
         "at_risk": "Poor"
     }
 
-    return category_mapping.get(value, "Unknown")
-
+    return mapping.get(value, "Unknown")
 
 # ---------------- APP TITLE ----------------
 
 st.title("🎓 AI Student Performance Prediction System")
 
 st.write(
-    "Predict student performance and get personalized "
-    "improvement suggestions."
+    "Predict student performance, save student records "
+    "and manage academic information."
 )
-
 
 # ---------------- STUDENT PREDICTION ----------------
 
 st.header("📝 Enter Student Details")
 
-student_name = st.text_input("Student Name")
+with st.form("prediction_form"):
 
-attendance = st.number_input(
-    "Attendance (%)",
-    min_value=0,
-    max_value=100,
-    value=85
-)
+    student_name = st.text_input("Student Name")
 
-internal_marks = st.number_input(
-    "Internal Marks (out of 100)",
-    min_value=0,
-    max_value=100,
-    value=75
-)
+    attendance = st.number_input(
+        "Attendance (%)", 0.0, 100.0, 85.0
+    )
 
-assignment_score = st.number_input(
-    "Assignment Score (out of 100)",
-    min_value=0,
-    max_value=100,
-    value=80
-)
+    internal_marks = st.number_input(
+        "Internal Marks (out of 100)", 0.0, 100.0, 75.0
+    )
 
-study_hours = st.number_input(
-    "Study Hours per Day",
-    min_value=0,
-    max_value=24,
-    value=4
-)
+    assignment_score = st.number_input(
+        "Assignment Score (out of 100)", 0.0, 100.0, 80.0
+    )
 
-if st.button("Predict Performance", type="primary"):
+    study_hours = st.number_input(
+        "Study Hours per Day", 0.0, 24.0, 4.0
+    )
 
-    student = pd.DataFrame([{
-        "attendance": attendance,
-        "internal_marks": internal_marks,
-        "assignment_score": assignment_score,
-        "study_hours": study_hours
-    }])
+    predict_button = st.form_submit_button(
+        "Predict & Save Student",
+        type="primary"
+    )
 
-    try:
-        prediction = str(model.predict(student)[0]).strip()
-        result = standardize_performance(prediction)
+if predict_button:
 
-        st.subheader("📊 Prediction Result")
+    if not student_name.strip():
+        st.error("Please enter the student name.")
 
-        if result == "Good":
-            st.success("Predicted Performance: Good")
+    else:
+        student = pd.DataFrame([{
+            "attendance": attendance,
+            "internal_marks": internal_marks,
+            "assignment_score": assignment_score,
+            "study_hours": study_hours
+        }])
 
-        elif result == "Average":
-            st.warning("Predicted Performance: Average")
+        try:
+            prediction = model.predict(student)[0]
+            result = standardize_performance(prediction)
 
-        elif result == "Poor":
-            st.error("Predicted Performance: Poor")
+            if result == "Unknown":
+                st.error(f"Unrecognized model result: {prediction}")
 
-        else:
-            st.info(f"Model Prediction: {prediction}")
+            else:
+                # Automatically save the student record
+                save_student(
+                    student_name.strip(),
+                    attendance,
+                    internal_marks,
+                    assignment_score,
+                    study_hours,
+                    result
+                )
 
-        st.subheader("💡 Personalized Improvement Suggestions")
+                st.success(
+                    f"Prediction: {result} | Student data saved successfully!"
+                )
 
-        suggestions = []
+                st.subheader("💡 Improvement Suggestions")
 
-        if result == "Poor":
-            suggestions.extend([
-                "Focus on weak subjects and ask teachers for help.",
-                "Create a daily study timetable and revise regularly.",
-                "Seek additional academic support if needed."
-            ])
+                suggestions = []
 
-        elif result == "Average":
-            suggestions.extend([
-                "Practise more questions to improve your performance.",
-                "Revise class notes daily and prepare early for exams.",
-                "Set weekly learning goals and track your progress."
-            ])
+                if result == "Good":
+                    suggestions.extend([
+                        "Excellent progress! Maintain your study routine.",
+                        "Try advanced questions and mock tests."
+                    ])
 
-        elif result == "Good":
-            suggestions.extend([
-                "Excellent progress! Maintain your study routine.",
-                "Try advanced questions and practise mock tests."
-            ])
+                elif result == "Average":
+                    suggestions.extend([
+                        "Practise more questions.",
+                        "Revise class notes daily.",
+                        "Set weekly learning goals."
+                    ])
 
-        if attendance < 75:
-            suggestions.append(
-                "Improve attendance and attend classes regularly."
-            )
+                elif result == "Poor":
+                    suggestions.extend([
+                        "Focus on weak subjects.",
+                        "Create a daily study timetable.",
+                        "Seek additional academic support."
+                    ])
 
-        if internal_marks < 60:
-            suggestions.append(
-                "Revise important topics and practise exam questions."
-            )
+                if attendance < 75:
+                    suggestions.append(
+                        "Improve attendance and attend classes regularly."
+                    )
 
-        if assignment_score < 60:
-            suggestions.append(
-                "Complete assignments on time and review feedback."
-            )
+                if internal_marks < 60:
+                    suggestions.append(
+                        "Revise important topics and practise exam questions."
+                    )
 
-        if study_hours < 2:
-            suggestions.append(
-                "Try following a consistent daily study schedule."
-            )
+                if assignment_score < 60:
+                    suggestions.append(
+                        "Complete assignments on time."
+                    )
 
-        if not suggestions:
-            suggestions.append(
-                "Continue regular revision and maintain your study habits."
-            )
+                if study_hours < 2:
+                    suggestions.append(
+                        "Follow a consistent daily study schedule."
+                    )
 
-        for suggestion in dict.fromkeys(suggestions):
-            st.write(f"📌 {suggestion}")
+                for suggestion in dict.fromkeys(suggestions):
+                    st.write("📌", suggestion)
 
-        if student_name.strip():
-            st.caption(f"Student: {student_name.strip()}")
-
-    except Exception as e:
-        st.error(f"Prediction failed: {e}")
-
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
 
 # ---------------- TEACHER DASHBOARD ----------------
 
 st.divider()
 st.header("👨‍🏫 Teacher Dashboard")
 
-try:
-    data = pd.read_csv("students.csv")
+data = get_students()
 
-    if "performance" not in data.columns:
-        st.error(
-            "The students.csv file must contain a 'performance' column."
-        )
+total = len(data)
 
-    else:
-        # Standardize performance categories
-        data["performance"] = data["performance"].apply(
-            standardize_performance
-        )
+good = int((data["performance"] == "Good").sum())
+average = int((data["performance"] == "Average").sum())
+poor = int((data["performance"] == "Poor").sum())
 
-        # Calculate counts from actual student records
-        total_students = len(data)
+col1, col2, col3, col4 = st.columns(4)
 
-        good_count = int(
-            (data["performance"] == "Good").sum()
-        )
+col1.metric("Total Students", total)
+col2.metric("Good", good)
+col3.metric("Average", average)
+col4.metric("Poor", poor)
 
-        average_count = int(
-            (data["performance"] == "Average").sum()
-        )
+# ---------------- PERFORMANCE CHART ----------------
 
-        poor_count = int(
-            (data["performance"] == "Poor").sum()
-        )
+st.subheader("📊 Student Performance Chart")
 
-        unknown_count = int(
-            (data["performance"] == "Unknown").sum()
-        )
+if total > 0:
+    chart_data = pd.DataFrame({
+        "Performance": ["Good", "Average", "Poor"],
+        "Students": [good, average, poor]
+    })
 
-        # Dashboard metrics
-        col1, col2, col3, col4 = st.columns(4)
+    st.bar_chart(
+        chart_data.set_index("Performance")
+    )
+else:
+    st.info("No student records available yet.")
 
-        col1.metric("Total Students", total_students)
-        col2.metric("Good", good_count)
-        col3.metric("Average", average_count)
-        col4.metric("Poor", poor_count)
+# ---------------- SEARCH STUDENTS ----------------
 
-        if unknown_count > 0:
-            st.warning(
-                f"{unknown_count} student record(s) have an "
-                "unrecognized performance category."
+st.subheader("🔍 Search Student")
+
+search_text = st.text_input(
+    "Search by student name or performance"
+)
+
+if search_text.strip():
+    filtered_data = data[
+        data.astype(str).apply(
+            lambda col: col.str.contains(
+                search_text.strip(),
+                case=False,
+                regex=False,
+                na=False
             )
+        ).any(axis=1)
+    ]
+else:
+    filtered_data = data
 
-        # Performance chart
-        st.subheader("📊 Student Performance Chart")
+st.dataframe(
+    filtered_data,
+    use_container_width=True,
+    hide_index=True
+)
 
-        chart_data = pd.DataFrame({
-            "Performance": ["Good", "Average", "Poor"],
-            "Students": [
-                good_count,
-                average_count,
-                poor_count
-            ]
-        })
+# ---------------- DOWNLOAD RECORDS ----------------
 
-        st.bar_chart(
-            chart_data.set_index("Performance")
-        )
+st.subheader("📥 Download Student Records")
 
-        # Student records
-        st.subheader("📋 Student Records")
+csv_data = data.to_csv(index=False).encode("utf-8")
 
-        search_text = st.text_input(
-            "Search students by performance or feature value",
-            placeholder="e.g. Average, Good, Poor, or 85"
-        )
+st.download_button(
+    label="Download Student Data (CSV)",
+    data=csv_data,
+    file_name="student_records.csv",
+    mime="text/csv",
+    disabled=data.empty
+)
 
-        if search_text.strip():
-            filtered_data = data[
-                data.astype(str).apply(
-                    lambda column: column.str.contains(
-                        search_text.strip(),
-                        case=False,
-                        na=False,
-                        regex=False
-                    )
-                ).any(axis=1)
-            ]
-        else:
-            filtered_data = data
+# ---------------- EDIT STUDENT ----------------
 
-        st.dataframe(
-            filtered_data,
-            use_container_width=True,
-            hide_index=True
-        )
+st.divider()
+st.subheader("✏️ Edit Student Record")
 
-        st.caption(
-            "Dashboard records are generated sample data, "
-            "not actual college student records."
-        )
+if not data.empty:
 
-except FileNotFoundError:
-    st.error(
-        "students.csv not found. Make sure it is in your project folder."
+    selected_id = st.selectbox(
+        "Select Student ID to Edit",
+        data["id"].tolist()
     )
 
-except Exception as e:
-    st.error(f"Could not load the student dashboard: {e}")
+    selected = data[data["id"] == selected_id].iloc[0]
+
+    with st.form("edit_student_form"):
+
+        edit_name = st.text_input(
+            "Student Name",
+            value=str(selected["student_name"])
+        )
+
+        edit_attendance = st.number_input(
+            "Attendance",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(selected["attendance"]),
+            key="edit_attendance"
+        )
+
+        edit_marks = st.number_input(
+            "Internal Marks",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(selected["internal_marks"]),
+            key="edit_marks"
+        )
+
+        edit_assignment = st.number_input(
+            "Assignment Score",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(selected["assignment_score"]),
+            key="edit_assignment"
+        )
+
+        edit_hours = st.number_input(
+            "Study Hours",
+            min_value=0.0,
+            max_value=24.0,
+            value=float(selected["study_hours"]),
+            key="edit_hours"
+        )
+
+        edit_performance = st.selectbox(
+            "Performance",
+            ["Good", "Average", "Poor"],
+            index=["Good", "Average", "Poor"].index(
+                selected["performance"]
+            )
+        )
+
+        update_button = st.form_submit_button("Update Student")
+
+    if update_button:
+        if not edit_name.strip():
+            st.error("Student name cannot be empty.")
+        else:
+            update_student(
+                selected_id,
+                edit_name.strip(),
+                edit_attendance,
+                edit_marks,
+                edit_assignment,
+                edit_hours,
+                edit_performance
+            )
+
+            st.success("Student record updated successfully!")
+            st.rerun()
+
+# ---------------- DELETE STUDENT ----------------
+
+st.subheader("🗑️ Delete Student Record")
+
+if not data.empty:
+
+    delete_id = st.selectbox(
+        "Select Student ID to Delete",
+        data["id"].tolist(),
+        key="delete_student_id"
+    )
+
+    confirm_delete = st.checkbox(
+        "I confirm that I want to delete this student record."
+    )
+
+    if st.button("Delete Selected Student", type="secondary"):
+
+        if confirm_delete:
+            delete_student(delete_id)
+            st.success("Student record deleted successfully!")
+            st.rerun()
+        else:
+            st.warning("Please confirm before deleting.")
+
+else:
+    st.info("No saved student records yet.")
+
+# ---------------- FOOTER ----------------
+
+st.divider()
+
+st.caption(
+    "AI Student Performance Prediction System | "
+    "Powered by Python, Streamlit, SQLite and Machine Learning"
+)
