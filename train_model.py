@@ -4,52 +4,59 @@ import joblib
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix
-)
+from sklearn.metrics import accuracy_score, classification_report
 
-# Load the generated sample dataset
-data = pd.read_csv("sample_students.csv")
+# Load Dataset
+data = pd.read_csv("students.csv")
 
-# Input features and target
+print("Dataset Loaded Successfully!")
+print("Total Students:", len(data))
+
+# Input Features
 X = data[
-    ["attendance", "internal_marks", "assignment_score", "study_hours"]
+    [
+        "attendance",
+        "internal_marks",
+        "assignment_score",
+        "study_hours"
+    ]
 ]
+
+# Target
 y = data["performance"]
 
-# Split data into training and testing sets
+# Split Dataset
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
-    test_size=0.25,
+    test_size=0.20,
     random_state=42,
     stratify=y
 )
 
-# Train the model
+# Train Model
 model = RandomForestClassifier(
     n_estimators=100,
     random_state=42
 )
+
 model.fit(X_train, y_train)
 
-# Evaluate the model on unseen test records
+# Predictions
 predictions = model.predict(X_test)
 
-print("Model Evaluation Report")
-print("-----------------------")
-print("Training records:", len(X_train))
-print("Testing records:", len(X_test))
-print(f"Accuracy: {accuracy_score(y_test, predictions):.2%}")
+# Accuracy
+accuracy = accuracy_score(y_test, predictions)
+
+print("\nModel Training Completed!")
+print("Training Students:", len(X_train))
+print("Testing Students:", len(X_test))
+print("Model Accuracy:", round(accuracy * 100, 2), "%")
 
 print("\nClassification Report:")
-print(classification_report(y_test, predictions, zero_division=0))
+print(classification_report(y_test, predictions))
 
-print("Confusion Matrix:")
-print(confusion_matrix(y_test, predictions))
-
-# Save the trained model
+# Save Model
 joblib.dump(model, "student_model.pkl")
-print("\nModel saved successfully as student_model.pkl")
+
+print("\nModel Saved Successfully!")
