@@ -6,13 +6,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 
-# Load Dataset
-data = pd.read_csv("students.csv")
+# ---------------- LOAD DATASET ----------------
+
+data = pd.read_csv("sample_students.csv")
 
 print("Dataset Loaded Successfully!")
 print("Total Students:", len(data))
 
-# Input Features
+# ---------------- INPUT FEATURES ----------------
+
 X = data[
     [
         "attendance",
@@ -22,10 +24,12 @@ X = data[
     ]
 ]
 
-# Target
+# ---------------- TARGET ----------------
+
 y = data["performance"]
 
-# Split Dataset
+# ---------------- SPLIT DATASET ----------------
+
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
@@ -34,7 +38,12 @@ X_train, X_test, y_train, y_test = train_test_split(
     stratify=y
 )
 
-# Train Model
+print("\nDataset Split Successfully!")
+print("Training Students:", len(X_train))
+print("Testing Students:", len(X_test))
+
+# ---------------- TRAIN MODEL ----------------
+
 model = RandomForestClassifier(
     n_estimators=100,
     random_state=42
@@ -42,21 +51,23 @@ model = RandomForestClassifier(
 
 model.fit(X_train, y_train)
 
-# Predictions
+# ---------------- PREDICTIONS ----------------
+
 predictions = model.predict(X_test)
 
-# Accuracy
+# ---------------- MODEL ACCURACY ----------------
+
 accuracy = accuracy_score(y_test, predictions)
 
 print("\nModel Training Completed!")
-print("Training Students:", len(X_train))
-print("Testing Students:", len(X_test))
 print("Model Accuracy:", round(accuracy * 100, 2), "%")
 
 print("\nClassification Report:")
 print(classification_report(y_test, predictions))
 
-# Save Model
+# ---------------- SAVE MODEL ----------------
+
 joblib.dump(model, "student_model.pkl")
 
 print("\nModel Saved Successfully!")
+print("Updated model: student_model.pkl")
